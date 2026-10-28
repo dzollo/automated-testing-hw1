@@ -1,0 +1,5 @@
+[dictionaries.emails]
+values = ["alice@example.com", "bob@example.com", "carol@example.com"]
+
+[parameters]
+"body.email" = { dictionary = "emails" }
