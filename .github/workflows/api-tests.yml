@@ -1,0 +1,43 @@
+name: API tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Run pytest
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up uv with cache
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: true
+
+      - name: "Set up Python"
+        uses: actions/setup-python@v7
+        with:
+          python-version-file: ".python-version"
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Run tests
+        run: uv run --locked pytest -v --junitxml=pytest-results.xml
+
+      - name: Upload pytest artefacts
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: pytest-results
+          path: |
+            pytest-results.xml
+          if-no-files-found: warn
+          retention-days: 14
