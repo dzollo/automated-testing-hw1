@@ -1,6 +1,6 @@
 """Small in-memory REST API used as a deterministic test target."""
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import FastAPI, HTTPException, Path, Response, status
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -12,7 +12,8 @@ class UserCreate(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     name: str = Field(min_length=1, max_length=100, examples=["Alice"])
-    email: EmailStr = Field(examples=["alice@example.com"])
+    # Адрес, которого нет в начальных данных, чтобы пример давал 201, а не 409.
+    email: EmailStr = Field(examples=["new.user@example.com"])
     age: int = Field(ge=18, le=65, examples=[30])
 
 
@@ -23,6 +24,64 @@ class UserResponse(BaseModel):
     name: str
     email: EmailStr
     age: int = Field(ge=18, le=65)
+
+
+class MessageResponse(BaseModel):
+    """Body of 400 responses produced by FastAPI when the body cannot be decoded."""
+
+    detail: str = Field(examples=["There was an error parsing the body"])
+
+
+class ErrorDetail(BaseModel):
+    """Machine-readable application error."""
+
+    code: str = Field(examples=["USER_NOT_FOUND"])
+    message: str = Field(examples=["User with ID 42 was not found"])
+
+
+class ErrorResponse(BaseModel):
+    """Body of errors raised via HTTPException(detail={...})."""
+
+    detail: ErrorDetail
+
+
+class ValidationErrorItem(BaseModel):
+    """One FastAPI/Pydantic validation error."""
+
+    model_config = ConfigDict(extra="allow")
+
+    type: str
+    loc: list[str | int]
+    msg: str
+
+
+class ValidationErrorResponse(BaseModel):
+    """Body of 422 responses produced by request validation."""
+
+    detail: list[ValidationErrorItem]
+
+
+NOT_FOUND: dict[int | str, dict[str, Any]] = {
+    404: {"model": ErrorResponse, "description": "User not found"}
+}
+CONFLICT: dict[int | str, dict[str, Any]] = {
+    409: {
+        "model": ErrorResponse,
+        "description": "A user with this email already exists",
+    }
+}
+INVALID: dict[int | str, dict[str, Any]] = {
+    422: {
+        "model": ValidationErrorResponse,
+        "description": "Request validation failed (including syntactically invalid JSON)",
+    }
+}
+BAD_REQUEST: dict[int | str, dict[str, Any]] = {
+    400: {
+        "model": MessageResponse,
+        "description": "Request body could not be decoded (e.g. invalid UTF-8)",
+    }
+}
 
 
 def create_app() -> FastAPI:
@@ -58,6 +117,7 @@ def create_app() -> FastAPI:
 
     @app.get(
         "/users",
+        operation_id="list_users",
         response_model=list[UserResponse],
         tags=["users"],
         summary="List users",
@@ -69,10 +129,11 @@ def create_app() -> FastAPI:
 
     @app.get(
         "/users/{user_id}",
+        operation_id="get_user",
         response_model=UserResponse,
         tags=["users"],
         summary="Get a user by ID",
-        responses={404: {"description": "User not found"}},
+        responses={**NOT_FOUND, **INVALID},
     )
     def get_user(
         user_id: Annotated[
@@ -96,14 +157,25 @@ def create_app() -> FastAPI:
 
     @app.post(
         "/users",
+        operation_id="create_user",
         response_model=UserResponse,
         status_code=status.HTTP_201_CREATED,
         tags=["users"],
         summary="Create a user",
         responses={
-            400: {"description": "Malformed JSON request body"},
-            409: {"description": "A user with this email already exists"},
-            422: {"description": "Request validation failed"},
+            201: {
+                "description": "User created",
+                "links": {
+                    "GetCreatedUser": {
+                        "operationId": "get_user",
+                        "parameters": {"user_id": "$response.body#/id"},
+                        "description": "Fetch the user that was just created",
+                    }
+                },
+            },
+            **BAD_REQUEST,
+            **CONFLICT,
+            **INVALID,
         },
     )
     def create_user(payload: UserCreate, response: Response) -> UserResponse:

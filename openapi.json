@@ -13,7 +13,7 @@
         ],
         "summary": "List users",
         "description": "Return all users sorted by ID.",
-        "operationId": "list_users_users_get",
+        "operationId": "list_users",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -24,7 +24,7 @@
                     "$ref": "#/components/schemas/UserResponse"
                   },
                   "type": "array",
-                  "title": "Response List Users Users Get"
+                  "title": "Response List Users"
                 }
               }
             }
@@ -37,7 +37,7 @@
         ],
         "summary": "Create a user",
         "description": "Create a user after validating uniqueness and field constraints.",
-        "operationId": "create_user_users_post",
+        "operationId": "create_user",
         "requestBody": {
           "content": {
             "application/json": {
@@ -50,23 +50,53 @@
         },
         "responses": {
           "201": {
-            "description": "Successful Response",
+            "description": "User created",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/UserResponse"
                 }
               }
+            },
+            "links": {
+              "GetCreatedUser": {
+                "operationId": "get_user",
+                "parameters": {
+                  "user_id": "$response.body#/id"
+                },
+                "description": "Fetch the user that was just created"
+              }
             }
           },
           "400": {
-            "description": "Malformed JSON request body"
+            "description": "Request body could not be decoded (e.g. invalid UTF-8)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
           },
           "409": {
-            "description": "A user with this email already exists"
+            "description": "A user with this email already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "422": {
-            "description": "Request validation failed"
+            "description": "Request validation failed (including syntactically invalid JSON)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -78,7 +108,7 @@
         ],
         "summary": "Get a user by ID",
         "description": "Return a user or a structured 404 error.",
-        "operationId": "get_user_users__user_id__get",
+        "operationId": "get_user",
         "parameters": [
           {
             "name": "user_id",
@@ -105,14 +135,21 @@
             }
           },
           "404": {
-            "description": "User not found"
-          },
-          "422": {
-            "description": "Validation Error",
+            "description": "User not found",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed (including syntactically invalid JSON)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
                 }
               }
             }
@@ -123,18 +160,60 @@
   },
   "components": {
     "schemas": {
-      "HTTPValidationError": {
+      "ErrorDetail": {
         "properties": {
-          "detail": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationError"
-            },
-            "type": "array",
-            "title": "Detail"
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "examples": [
+              "USER_NOT_FOUND"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "examples": [
+              "User with ID 42 was not found"
+            ]
           }
         },
         "type": "object",
-        "title": "HTTPValidationError"
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorDetail",
+        "description": "Machine-readable application error."
+      },
+      "ErrorResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorResponse",
+        "description": "Body of errors raised via HTTPException(detail={...})."
+      },
+      "MessageResponse": {
+        "properties": {
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "examples": [
+              "There was an error parsing the body"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "MessageResponse",
+        "description": "Body of 400 responses produced by FastAPI when the body cannot be decoded."
       },
       "UserCreate": {
         "properties": {
@@ -152,7 +231,7 @@
             "format": "email",
             "title": "Email",
             "examples": [
-              "alice@example.com"
+              "new.user@example.com"
             ]
           },
           "age": {
@@ -210,8 +289,12 @@
         "title": "UserResponse",
         "description": "Response contract returned by the user endpoints."
       },
-      "ValidationError": {
+      "ValidationErrorItem": {
         "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
           "loc": {
             "items": {
               "anyOf": [
@@ -224,31 +307,39 @@
               ]
             },
             "type": "array",
-            "title": "Location"
+            "title": "Loc"
           },
           "msg": {
             "type": "string",
-            "title": "Message"
-          },
-          "type": {
-            "type": "string",
-            "title": "Error Type"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "ctx": {
-            "type": "object",
-            "title": "Context"
+            "title": "Msg"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "type",
+          "loc",
+          "msg"
+        ],
+        "title": "ValidationErrorItem",
+        "description": "One FastAPI/Pydantic validation error."
+      },
+      "ValidationErrorResponse": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationErrorItem"
+            },
+            "type": "array",
+            "title": "Detail"
           }
         },
         "type": "object",
         "required": [
-          "loc",
-          "msg",
-          "type"
+          "detail"
         ],
-        "title": "ValidationError"
+        "title": "ValidationErrorResponse",
+        "description": "Body of 422 responses produced by request validation."
       }
     }
   }
